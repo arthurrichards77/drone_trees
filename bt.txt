@@ -1,0 +1,81 @@
+MODULE leaf(tick_in)
+VAR
+  result : {success, running, failure};
+
+
+MODULE seq(tick_in,child1_result,child2_result)
+DEFINE
+  result := case
+              child1_result = success & child2_result = success : success;
+              child1_result = success & child2_result = running : running;
+              child1_result = running : running;
+              TRUE : failure;
+            esac;
+  tick_child1 := tick_in;
+  tick_child2 := case
+                   tick_in = TRUE & child1_result = success : TRUE;
+                   TRUE : FALSE;
+                 esac;
+
+
+MODULE s2r(tick_in,child_result)
+DEFINE
+  result := case
+              child_result = failure : failure;
+              TRUE : running;
+            esac;
+  tick_child := tick_in;
+
+
+MODULE oneshot(tick_in,child_result)
+VAR
+  state : {success, running, failure};
+ASSIGN
+  init(state) := running;
+  next(state) := case
+                   state = running : child_result;
+                   TRUE : state;
+                 esac;
+DEFINE
+  result := case
+              state = running : child_result;
+              TRUE : state;
+            esac;
+  tick_child := case
+                  state = running : tick_in;
+                  TRUE : FALSE;
+                esac;
+
+MODULE timeout(tick_in,child_result,timeout_period)
+VAR
+  run_ctr : 0..timeout_period;
+ASSIGN
+  init(run_ctr) := timeout_period;
+  next(run_ctr) := case
+                     child_result = running & run_ctr = 0 : run_ctr;
+                     child_result = running : run_ctr - 1;
+                     TRUE : timeout_period;
+                   esac;
+DEFINE
+  result := case
+              run_ctr = 0 : failure;
+              TRUE : child_result;
+            esac;
+  tick_child := case
+                  run_ctr = 0 : FALSE;
+                  TRUE : TRUE;
+                esac;
+
+MODULE main
+VAR
+leaf0 : leaf(dec0.tick_child);
+leaf1 : leaf(seq0.tick_child2);
+dec0 : s2r(seq0.tick_child1,leaf0.result);
+seq0 : seq(dec1.tick_child,dec0.result,leaf1.result);
+dec1 : timeout(TRUE,seq0.result,14);
+-- SPEC EF leaf1.tick_in
+-- SPEC AG !leaf1.tick_in
+-- SPEC EF (dec0.result = success)
+-- SPEC AG !(seq0.result = success)
+-- SPEC EF (dec1.result = success)
+SPEC AG leaf0.tick_in
